@@ -43,6 +43,7 @@
 
     .green { background: green; }
     .red { background: red; }
+    .boost { background: gold; border: 3px solid #ffaa00; }
 
     #score, #highScore, #level {
       position: absolute;
@@ -65,7 +66,7 @@
       border-radius: 5px;
       font-weight: bold;
       cursor: pointer;
-      display: none;
+      display: none; /* kept hidden; boosts now drop as items */
     }
 
     .controls {
@@ -130,6 +131,9 @@
   const boostSpeed = normalSpeed * 2;
   const blockSpeed = 3;
 
+  // Track boost timer so picking another boost resets duration rather than stacking
+  let boostTimer = null;
+
   function updateCarPosition() {
     car.style.left = carX + 'px';
     car.style.top = carY + 'px';
@@ -155,27 +159,27 @@
   document.getElementById('left').onclick = () => moveCar(-carSpeed, 0);
   document.getElementById('right').onclick = () => moveCar(carSpeed, 0);
 
-  // Speed boost every 5 seconds
-  setInterval(() => {
-    boostBtn.style.display = 'block';
-  }, 5000);
+  // Keep a reference to the original background so we can restore it after a boost
+  const originalBackground = car.style.background || '';
 
-  boostBtn.onclick = () => {
+  function applyBoost() {
+    // reset existing boost timer so duration restarts
+    if (boostTimer) clearTimeout(boostTimer);
+
     carSpeed = boostSpeed;
     car.style.background = 'orange';
-    boostBtn.style.display = 'none';
 
-    setTimeout(() => {
+    boostTimer = setTimeout(() => {
       carSpeed = normalSpeed;
-      car.style.background = 'red';
-    }, 10000);
-  };
+      car.style.background = originalBackground; // revert to CSS-styled background
+      boostTimer = null;
+    }, 5000); // BOOST lasts 5 seconds
+  }
 
   function createBlock() {
     const block = document.createElement('div');
-    const isPowerUp = Math.random() < 0.2;
 
-    block.className = 'block ' + (isPowerUp ? 'red' : 'green');
+    block.className = 'block green';
     block.style.left = Math.random() * (window.innerWidth - 50) + 'px';
     document.body.appendChild(block);
 
@@ -192,19 +196,10 @@
             carRect.bottom < blockRect.top || 
             carRect.top > blockRect.bottom)) {
 
-        if (isPowerUp) {
-          carSpeed = boostSpeed;
-          car.style.background = 'purple';
-          setTimeout(() => {
-            carSpeed = normalSpeed;
-            car.style.background = 'red';
-          }, 10000);
-        } else {
-          score += 1;
-          if (score > highScore) highScore = score;
-
-          level = Math.floor(score / 10);
-        }
+        // Regular block: increase score
+        score += 1;
+        if (score > highScore) highScore = score;
+        level = Math.floor(score / 10);
 
         updateScores();
         clearInterval(interval);
@@ -218,7 +213,46 @@
     }, 30);
   }
 
+  // Create a boost item that drops every 15 seconds
+  function createBoost() {
+    const block = document.createElement('div');
+    block.className = 'block boost';
+    block.style.left = Math.random() * (window.innerWidth - 50) + 'px';
+    // slightly bigger so it stands out
+    block.style.width = '60px';
+    block.style.height = '60px';
+    document.body.appendChild(block);
+
+    let blockY = -60;
+    const interval = setInterval(() => {
+      blockY += blockSpeed;
+      block.style.top = blockY + 'px';
+
+      const carRect = car.getBoundingClientRect();
+      const blockRect = block.getBoundingClientRect();
+
+      if (!(carRect.right < blockRect.left || 
+            carRect.left > blockRect.right || 
+            carRect.bottom < blockRect.top || 
+            carRect.top > blockRect.bottom)) {
+
+        // Apply boost for 5 seconds
+        applyBoost();
+
+        clearInterval(interval);
+        block.remove();
+      }
+
+      if (blockY > window.innerHeight) {
+        clearInterval(interval);
+        block.remove();
+      }
+    }, 30);
+  }
+
   setInterval(createBlock, 2000);
+  setInterval(createBoost, 15000); // boost item drops every 15 seconds
+
   updateCarPosition();
   updateScores();
 </script>

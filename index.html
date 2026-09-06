@@ -56,6 +56,20 @@
     #highScore { top: 40px; }
     #level { top: 70px; }
 
+    /* boost timer display */
+    #boostTimer {
+      position: absolute;
+      left: 10px;
+      top: 100px;
+      font-size: 18px;
+      color: #000;
+      display: none;
+      background: rgba(255,255,255,0.8);
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+
     #boostBtn {
       position: absolute;
       top: 70px;
@@ -101,6 +115,7 @@
 <div id="score">Score: 0</div>
 <div id="highScore">High Score: 0</div>
 <div id="level">Level: 0</div>
+<div id="boostTimer">Boost: 0s</div>
 <button id="boostBtn">⚡ BOOST!</button>
 <div class="road"></div>
 
@@ -120,21 +135,30 @@
 <script>
   const car = document.getElementById('playerCar');
   const boostBtn = document.getElementById('boostBtn');
+  const boostTimerElem = document.getElementById('boostTimer');
 
   let carX = window.innerWidth / 2 - 70;
   let carY = window.innerHeight - 150;
   let score = 0;
   let level = 0;
   let highScore = 0;
-  let carSpeed = 40;
+
+  // widths (car length)
+  let carWidth = 140;
+  const normalWidth = 140;
+  const boostWidth = normalWidth * 2; // 2x length
+
+  let carSpeed = 40; // movement amount per button press
   const normalSpeed = 40;
-  const boostSpeed = normalSpeed * 2;
   const blockSpeed = 3;
 
-  // Track boost timer so picking another boost resets duration rather than stacking
-  let boostTimer = null;
+  // boost timers/handles
+  let boostTimeout = null; // revert timeout
+  let boostCountdownInterval = null; // UI countdown interval
+  let boostRemaining = 0; // seconds
 
   function updateCarPosition() {
+    car.style.width = carWidth + 'px';
     car.style.left = carX + 'px';
     car.style.top = carY + 'px';
   }
@@ -149,7 +173,8 @@
   function moveCar(dx, dy) {
     carX += dx;
     carY += dy;
-    carX = Math.max(0, Math.min(window.innerWidth - 140, carX));
+    // clamp using current car width
+    carX = Math.max(0, Math.min(window.innerWidth - carWidth, carX));
     carY = Math.max(0, Math.min(window.innerHeight - 45, carY));
     updateCarPosition();
   }
@@ -159,21 +184,56 @@
   document.getElementById('left').onclick = () => moveCar(-carSpeed, 0);
   document.getElementById('right').onclick = () => moveCar(carSpeed, 0);
 
-  // Keep a reference to the original background so we can restore it after a boost
-  const originalBackground = car.style.background || '';
+  // Keep a reference to computed background so we can restore it after a boost
+  const originalBackground = window.getComputedStyle(car).background || '';
+
+  function updateBoostUI() {
+    if (boostRemaining > 0) {
+      boostTimerElem.style.display = 'block';
+      boostTimerElem.innerText = 'Boost: ' + Math.ceil(boostRemaining) + 's';
+    } else {
+      boostTimerElem.style.display = 'none';
+      boostTimerElem.innerText = 'Boost: 0s';
+    }
+  }
 
   function applyBoost() {
-    // reset existing boost timer so duration restarts
-    if (boostTimer) clearTimeout(boostTimer);
+    // reset existing boost timers so duration restarts
+    if (boostTimeout) clearTimeout(boostTimeout);
+    if (boostCountdownInterval) clearInterval(boostCountdownInterval);
 
-    carSpeed = boostSpeed;
+    // apply visual and size change
+    carWidth = boostWidth;
     car.style.background = 'orange';
 
-    boostTimer = setTimeout(() => {
-      carSpeed = normalSpeed;
-      car.style.background = originalBackground; // revert to CSS-styled background
-      boostTimer = null;
-    }, 5000); // BOOST lasts 5 seconds
+    // ensure car doesn't go off-screen after growing; adjust carX if needed
+    carX = Math.max(0, Math.min(window.innerWidth - carWidth, carX));
+    updateCarPosition();
+
+    // start 5s boost
+    boostRemaining = 5;
+    updateBoostUI();
+
+    boostCountdownInterval = setInterval(() => {
+      boostRemaining -= 0.1; // decrement by 100ms
+      if (boostRemaining <= 0) boostRemaining = 0;
+      updateBoostUI();
+    }, 100);
+
+    boostTimeout = setTimeout(() => {
+      // revert size and visuals
+      carWidth = normalWidth;
+      car.style.background = originalBackground;
+      // ensure car is clamped back inside
+      carX = Math.max(0, Math.min(window.innerWidth - carWidth, carX));
+      updateCarPosition();
+
+      // clear timers
+      if (boostCountdownInterval) { clearInterval(boostCountdownInterval); boostCountdownInterval = null; }
+      boostTimeout = null;
+      boostRemaining = 0;
+      updateBoostUI();
+    }, 5000);
   }
 
   function createBlock() {
@@ -196,8 +256,8 @@
             carRect.bottom < blockRect.top || 
             carRect.top > blockRect.bottom)) {
 
-        // Regular block: increase score
-        score += 1;
+        // Regular block: increase score by 2
+        score += 2;
         if (score > highScore) highScore = score;
         level = Math.floor(score / 10);
 
@@ -217,7 +277,7 @@
   function createBoost() {
     const block = document.createElement('div');
     block.className = 'block boost';
-    block.style.left = Math.random() * (window.innerWidth - 50) + 'px';
+    block.style.left = Math.random() * (window.innerWidth - 60) + 'px';
     // slightly bigger so it stands out
     block.style.width = '60px';
     block.style.height = '60px';
@@ -236,7 +296,7 @@
             carRect.bottom < blockRect.top || 
             carRect.top > blockRect.bottom)) {
 
-        // Apply boost for 5 seconds
+        // Apply boost that doubles car length for 5 seconds
         applyBoost();
 
         clearInterval(interval);
@@ -255,6 +315,23 @@
 
   updateCarPosition();
   updateScores();
+  updateBoostUI();
+
+  // Keep the car centered horizontally on initial load
+  // (since CSS transform translateX(-50%) is applied, we set carX so the visual initial position matches)
+  window.addEventListener('load', () => {
+    // position carX to visually center (accounting for transform)
+    carX = window.innerWidth / 2 - (carWidth / 2);
+    carY = window.innerHeight - 150;
+    updateCarPosition();
+  });
+
+  // Also update bounds if window resizes
+  window.addEventListener('resize', () => {
+    carX = Math.max(0, Math.min(window.innerWidth - carWidth, carX));
+    carY = Math.max(0, Math.min(window.innerHeight - 45, carY));
+    updateCarPosition();
+  });
 </script>
 
 </body>
